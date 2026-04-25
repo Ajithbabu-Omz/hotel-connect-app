@@ -1,0 +1,25 @@
+{
+  "expo": {
+    "name": "Community App",
+    "slug": "community-app",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.communityapp.mobile"
+    },
+    "android": {
+      "package": "com.communityapp.mobile",
+      "adaptiveIcon": {
+        "backgroundColor": "#1E3A8A"
+      }
+    },
+    "plugins": [
+      "@react-native-community/datetimepicker"
+    ]
+  }
+}

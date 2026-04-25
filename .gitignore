@@ -1,0 +1,14 @@
+# Node
+node_modules/
+npm-debug.log
+
+# Expo
+.expo/
+.expo-shared/
+
+# Environment
+.env
+
+# OS
+.DS_Store
+Thumbs.db
