@@ -7,6 +7,7 @@ import WatchScreen from '../screens/WatchScreen';
 import WatchSessionScreen from '../screens/WatchSessionScreen';
 import UpdatesScreen from '../screens/UpdatesScreen';
 import ProfileScreen from '../screens/ProfileScreen';
+import ServiceRequestScreen from '../screens/ServiceRequestScreen';
 import { useNotifications } from '../context/NotificationContext';
 
 const Tab = createBottomTabNavigator();
@@ -16,6 +17,15 @@ const ICONS = { Home: '🏠', Community: '👥', Watch: '📺', Notifications: '
 
 function TabIcon({ name, focused }) {
   return <Text style={{ fontSize: 22, opacity: focused ? 1 : 0.45 }}>{ICONS[name]}</Text>;
+}
+
+function HomeStack() {
+  return (
+    <Stack.Navigator screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="HomeMain" component={HomeScreen} />
+      <Stack.Screen name="ServiceRequest" component={ServiceRequestScreen} />
+    </Stack.Navigator>
+  );
 }
 
 function WatchStack() {
@@ -46,7 +56,7 @@ export default function MainNavigator() {
         tabBarLabelStyle: { fontSize: 11, fontWeight: '600' },
       })}
     >
-      <Tab.Screen name="Home" component={HomeScreen} />
+      <Tab.Screen name="Home" component={HomeStack} />
       <Tab.Screen name="Community" component={CommunityScreen} />
       <Tab.Screen name="Watch" component={WatchStack} />
       <Tab.Screen

@@ -18,18 +18,16 @@ function timeAgo(dateStr) {
   return `${Math.floor(hrs / 24)}d ago`;
 }
 
-const TYPE_META = {
-  broadcast:     { color: '#1E3A8A', bg: '#EFF6FF', icon: '📢', label: 'BROADCAST' },
-  general:       { color: '#059669', bg: '#ECFDF5', icon: '📌', label: 'GENERAL' },
-  emergency:     { color: '#DC2626', bg: '#FEF2F2', icon: '🚨', label: 'EMERGENCY' },
-  maintenance:   { color: '#D97706', bg: '#FFFBEB', icon: '🔧', label: 'MAINTENANCE' },
-  post_like:     { color: '#E11D48', bg: '#FFF1F2', icon: '❤️', label: 'LIKED' },
-  // legacy key
-  like:          { color: '#E11D48', bg: '#FFF1F2', icon: '❤️', label: 'LIKED' },
-  post_comment:  { color: '#7C3AED', bg: '#F5F3FF', icon: '💬', label: 'COMMENT' },
-  // legacy key
-  comment:       { color: '#7C3AED', bg: '#F5F3FF', icon: '💬', label: 'COMMENT' },
-  service_reply: { color: '#0369A1', bg: '#F0F9FF', icon: '🛎️', label: 'SERVICE' },
+const TYPE_COLORS = {
+  broadcast: '#1E3A8A',
+  general: '#059669',
+  emergency: '#DC2626',
+  maintenance: '#D97706',
+  menu_update: '#7C3AED',
+  service_reply: '#0891B2',
+  post_reply: '#DB2777',
+  comment_reply: '#DB2777',
+  event: '#059669',
 };
 
 export default function NotificationsScreen({ navigation }) {

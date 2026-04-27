@@ -1,66 +1,106 @@
 const express = require('express');
 const router = express.Router();
 const axios = require('axios');
-const { v4: uuidv4 } = require('uuid');
-const store = require('../store');
+const { eq, desc } = require('drizzle-orm');
+const { getConnection } = require('../db/index');
+const schema = require('../db/schema');
 const { authenticate } = require('../middleware/auth');
+const fs = require('fs').promises;
 
-const EPG_URL = 'https://streaming0.watchdishtv.com/serviceepginterface/serviceepgdata';
+// ── Generic URL proxy ────────────────────────────────────────────────────────
+// POST /request  { url: "https://..." }
+router.post('/request', authenticate, async (req, res) => {
+  const { url } = req.body;
+  if (!url) return res.status(400).json({ error: 'url is required' });
+  try {
+    const upstream = await axios.get(url, {
+      responseType: 'arraybuffer',
+      timeout: 30000,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+        'Accept': '*/*',
+      },
+    });
+    res.set('Content-Type', upstream.headers['content-type'] || 'application/octet-stream');
+    res.set('Access-Control-Allow-Origin', '*');
+    res.status(upstream.status).send(Buffer.from(upstream.data));
+  } catch (err) {
+    const status = err.response?.status || 502;
+    await fs.appendFile('/app/requests.txt', `PROXY ERROR ${status} ${url}: ${err.message}\n`).catch(() => {});
+    res.status(status).json({ error: 'Proxy request failed', detail: err.message });
+  }
+});
+
+// ── DRM Token proxy ──────────────────────────────────────────────────────────
+// GET /drm-token?contentId=<id>
+// Proxies to $STREAMING_URL/$DRMTOKEN_ENDPOINT?contentID=<id> and returns the
+// full DRM token payload (serviceUrlHLS, serviceUrlHLSWidevine, drmToken …)
+router.get('/drm-token', authenticate, async (req, res) => {
+  const { contentId } = req.query;
+  if (!contentId) return res.status(400).json({ error: 'contentId is required' });
+
+  // contentId from the client is channelId (serviceKey). Resolve the real
+  // contentID (hex hash) from the EPG data.
+  const { channels } = await fetchEPGData();
+  const channel = channels.find((c) => c.channelId === contentId);
+  const resolvedContentId = channel?.contentID || contentId;
+
+  const streamingUrl = process.env.STREAMING_URL;
+  const drmEndpoint = process.env.DRMTOKEN_ENDPOINT;
+  if (!streamingUrl || !drmEndpoint) {
+    return res.status(503).json({ error: 'DRM service not configured' });
+  }
+
+  // DRMTOKEN_ENDPOINT may be a full URL or just a path segment.
+  // Normalise: strip any trailing query string placeholder the env might include.
+  let upstreamBase;
+  if (drmEndpoint.startsWith('http')) {
+    // Full URL — strip any trailing ?contentID= placeholder
+    upstreamBase = drmEndpoint.replace(/\?contentID=.*$/, '').replace(/\/+$/, '');
+  } else {
+    upstreamBase = `${streamingUrl.replace(/\/+$/, '')}/${drmEndpoint.replace(/^\/+/, '')}`;
+  }
+  const upstreamUrl = `${upstreamBase}?contentID=${encodeURIComponent(resolvedContentId)}`;
+
+  await fs.appendFile('/app/requests.txt', upstreamUrl + '\n').catch(() => {});
+
+  try {
+    const response = await axios.get(upstreamUrl, { timeout: 10000 });
+    res.json(response.data);
+  } catch (err) {
+    console.error('DRM token fetch error:', err.message);
+    const status = err.response?.status || 502;
+    res.status(status).json({ error: 'Failed to fetch DRM token' });
+  }
+});
+
 const EPG_CACHE_TTL = 5 * 60 * 1000;
 let epgCache = null;
 let epgCacheTime = 0;
 
-// Builds mock channels with realistic timestamps so the progress bar renders
-function getMockChannels() {
-  const now = Date.now();
-  const HOUR = 3600000;
-
-  const mockData = [
-    { channelId: 'ch-1', name: 'CNN International', currentProgram: 'World News Now', nextProgram: 'Breaking News Special', offset: 0.2, duration: HOUR },
-    { channelId: 'ch-2', name: 'BBC World News', currentProgram: 'Global Update', nextProgram: 'The Travel Show', offset: 0.45, duration: HOUR * 1.5 },
-    { channelId: 'ch-3', name: 'Discovery Channel', currentProgram: 'Shark Week', nextProgram: 'Planet Earth III', offset: 0.6, duration: HOUR * 2 },
-    { channelId: 'ch-4', name: 'ESPN', currentProgram: 'SportsCenter', nextProgram: 'NFL Live', offset: 0.1, duration: HOUR * 0.5 },
-    { channelId: 'ch-5', name: 'National Geographic', currentProgram: 'Wild Kingdom', nextProgram: 'Air Crash Investigation', offset: 0.75, duration: HOUR },
-    { channelId: 'ch-6', name: 'HBO', currentProgram: 'The Last of Us', nextProgram: 'House of the Dragon', offset: 0.3, duration: HOUR * 1.5 },
-    { channelId: 'ch-7', name: 'Fox Sports', currentProgram: 'Match of the Day', nextProgram: 'Formula 1', offset: 0.5, duration: HOUR },
-    { channelId: 'ch-8', name: 'MTV', currentProgram: 'Video Hits', nextProgram: 'Reality Check', offset: 0.85, duration: HOUR * 0.75 },
-    { channelId: 'ch-9', name: 'Animal Planet', currentProgram: 'Crocodile Hunter', nextProgram: 'Meerkat Manor', offset: 0.15, duration: HOUR * 2 },
-    { channelId: 'ch-10', name: 'History Channel', currentProgram: 'Ancient Aliens', nextProgram: 'Pawn Stars', offset: 0.4, duration: HOUR },
-  ];
-
-  return mockData.map(ch => {
-    const duration = ch.duration;
-    // currentProgramStart is calculated so 'offset' fraction of the show has already aired
-    const currentProgramStart = now - Math.round(ch.offset * duration);
-    return {
-      channelId: ch.channelId,
-      name: ch.name,
-      currentProgram: ch.currentProgram,
-      nextProgram: ch.nextProgram,
-      currentProgramStart,
-      currentProgramDuration: duration,
-      streamUrl: null,
-      viewers: store.watchSessions[ch.channelId] ? store.watchSessions[ch.channelId].viewers.size : 0,
-    };
-  });
-}
+// In-memory viewer tracking (ephemeral)
+const watchSessions = {};
 
 async function fetchEPGData() {
+  const streamingUrl = process.env.STREAMING_URL;
+  const epgEndpoint = process.env.EPG_ENDPOINT;
+  if (!streamingUrl || !epgEndpoint) {
+    return { channels: [], error: 'No channels available' };
+  }
+  const epgUrl = `${streamingUrl}/${epgEndpoint}`;
   const now = Date.now();
   if (epgCache && now - epgCacheTime < EPG_CACHE_TTL) {
-    return epgCache.map(ch => ({
-      ...ch,
-      viewers: store.watchSessions[ch.channelId] ? store.watchSessions[ch.channelId].viewers.size : 0,
-    }));
+    return { channels: epgCache };
   }
   try {
-    const response = await axios.get(EPG_URL, { timeout: 6000 });
+    const response = await axios.get(epgUrl, { timeout: 8000 });
     const data = response.data;
     const services = data && Array.isArray(data.services) ? data.services : null;
-    if (!services || services.length === 0) return getMockChannels();
-
-    const channels = services.slice(0, 20).map((svc, idx) => {
-      const channelId = svc.serviceKey || `epg-${idx + 1}`;
+    if (!services || services.length === 0) {
+      return { channels: [], error: 'No channels available' };
+    }
+    const channels = services.slice(0, 50).map((svc, idx) => {
+      const channelId = String(svc.serviceKey || `epg-${idx + 1}`);
       const events = Array.isArray(svc.events) ? svc.events : [];
       let currentEvent = null;
       let nextEvent = null;
@@ -80,80 +120,144 @@ async function fetchEPGData() {
       }
       return {
         channelId,
+        contentID: svc.contentID || null,
         name: svc.serviceName || `Channel ${idx + 1}`,
         currentProgram: currentEvent ? currentEvent.eventName : 'Live',
         nextProgram: nextEvent ? nextEvent.eventName : 'Coming up next',
         currentProgramStart: currentEvent ? currentEvent.startTime : null,
         currentProgramDuration: currentEvent ? currentEvent.duration * 1000 : null,
         streamUrl: svc.serviceUrlHLS || null,
+        streamUrlWidevine: svc.serviceUrlHLSWidevine || null,
       };
     });
     epgCache = channels;
     epgCacheTime = now;
-    return channels.map(ch => ({
-      ...ch,
-      viewers: store.watchSessions[ch.channelId] ? store.watchSessions[ch.channelId].viewers.size : 0,
-    }));
-  } catch {
-    return getMockChannels();
+    return { channels };
+  } catch (err) {
+    console.error('EPG fetch error:', err.message);
+    return { channels: [], error: 'No channels available' };
   }
 }
 
 router.get('/channels', authenticate, async (req, res) => {
-  const channels = await fetchEPGData();
-  res.json(channels);
+  const { channels, error } = await fetchEPGData();
+  if (error && channels.length === 0) {
+    return res.json({ channels: [], message: error });
+  }
+  const withViewers = channels.map((ch) => ({
+    ...ch,
+    viewers: watchSessions[ch.channelId] ? watchSessions[ch.channelId].size : 0,
+  }));
+  res.json({ channels: withViewers });
 });
 
 router.get('/channels/:channelId', authenticate, async (req, res) => {
-  const channels = await fetchEPGData();
-  const channel = channels.find(c => c.channelId === req.params.channelId);
+  const { channels, error } = await fetchEPGData();
+  if (error && channels.length === 0) {
+    return res.status(404).json({ error: 'No channels available' });
+  }
+  const channel = channels.find((c) => c.channelId === req.params.channelId);
   if (!channel) return res.status(404).json({ error: 'Channel not found' });
-  const session = store.watchSessions[req.params.channelId] || { viewers: new Set(), messages: [] };
-  res.json({ ...channel, viewers: session.viewers.size, messages: session.messages.slice(-50) });
+
+  try {
+    const { db } = getConnection();
+    const messages = await db
+      .select({
+        id: schema.channelMessages.id,
+        channelId: schema.channelMessages.channelId,
+        userId: schema.channelMessages.userId,
+        message: schema.channelMessages.message,
+        createdAt: schema.channelMessages.createdAt,
+        displayName: schema.users.displayName,
+        userIsActive: schema.users.isActive,
+      })
+      .from(schema.channelMessages)
+      .innerJoin(schema.users, eq(schema.channelMessages.userId, schema.users.id))
+      .where(eq(schema.channelMessages.channelId, req.params.channelId))
+      .orderBy(desc(schema.channelMessages.createdAt))
+      .limit(50);
+
+    res.json({
+      ...channel,
+      viewers: watchSessions[req.params.channelId] ? watchSessions[req.params.channelId].size : 0,
+      messages: messages.map((m) => ({
+        ...m,
+        username: m.userIsActive ? m.displayName : `${m.displayName} (inactive)`,
+      })).reverse(),
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Server error' });
+  }
 });
 
 router.post('/join-channel', authenticate, (req, res) => {
   const { channelId } = req.body;
   if (!channelId) return res.status(400).json({ error: 'channelId required' });
-  if (!store.watchSessions[channelId]) {
-    store.watchSessions[channelId] = { viewers: new Set(), messages: [] };
-  }
-  store.watchSessions[channelId].viewers.add(req.user.id);
-  const session = store.watchSessions[channelId];
-  res.json({ success: true, viewers: session.viewers.size, messages: session.messages.slice(-50) });
+  if (!watchSessions[channelId]) watchSessions[channelId] = new Set();
+  watchSessions[channelId].add(req.user.id);
+  res.json({ success: true, viewers: watchSessions[channelId].size });
 });
 
 router.post('/leave-channel', authenticate, (req, res) => {
   const { channelId } = req.body;
-  if (store.watchSessions[channelId]) {
-    store.watchSessions[channelId].viewers.delete(req.user.id);
+  if (watchSessions[channelId]) {
+    watchSessions[channelId].delete(req.user.id);
   }
   res.json({ success: true });
 });
 
-router.post('/channels/:channelId/message', authenticate, (req, res) => {
+router.post('/channels/:channelId/message', authenticate, async (req, res) => {
   const { channelId } = req.params;
   const { message } = req.body;
   if (!message || !message.trim()) return res.status(400).json({ error: 'Message required' });
-  if (!store.watchSessions[channelId]) {
-    store.watchSessions[channelId] = { viewers: new Set(), messages: [] };
+  if (req.user.role === 'admin' || req.user.role === 'staff') {
+    return res.status(403).json({ error: 'Admin/staff are view-only in watch sessions' });
   }
-  const chatMsg = {
-    id: uuidv4(),
-    userId: req.user.id,
-    username: req.user.name,
-    message: message.trim(),
-    createdAt: new Date().toISOString(),
-  };
-  const msgs = store.watchSessions[channelId].messages;
-  msgs.push(chatMsg);
-  if (msgs.length > 100) store.watchSessions[channelId].messages = msgs.slice(-100);
-  res.json({ success: true, message: chatMsg });
+  try {
+    const { db } = getConnection();
+    const [msg] = await db
+      .insert(schema.channelMessages)
+      .values({ channelId, userId: req.user.id, message: message.trim() })
+      .returning();
+    res.json({
+      success: true,
+      message: { ...msg, username: req.user.displayName, userIsActive: true },
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Server error' });
+  }
 });
 
-router.get('/channels/:channelId/messages', authenticate, (req, res) => {
-  const session = store.watchSessions[req.params.channelId];
-  res.json(session ? session.messages.slice(-50) : []);
+router.get('/channels/:channelId/messages', authenticate, async (req, res) => {
+  try {
+    const { db } = getConnection();
+    const messages = await db
+      .select({
+        id: schema.channelMessages.id,
+        channelId: schema.channelMessages.channelId,
+        userId: schema.channelMessages.userId,
+        message: schema.channelMessages.message,
+        createdAt: schema.channelMessages.createdAt,
+        displayName: schema.users.displayName,
+        userIsActive: schema.users.isActive,
+      })
+      .from(schema.channelMessages)
+      .innerJoin(schema.users, eq(schema.channelMessages.userId, schema.users.id))
+      .where(eq(schema.channelMessages.channelId, req.params.channelId))
+      .orderBy(desc(schema.channelMessages.createdAt))
+      .limit(50);
+
+    res.json(
+      messages
+        .map((m) => ({
+          ...m,
+          username: m.userIsActive ? m.displayName : `${m.displayName} (inactive)`,
+        }))
+        .reverse()
+    );
+  } catch (err) {
+    res.status(500).json({ error: 'Server error' });
+  }
 });
 
 module.exports = router;

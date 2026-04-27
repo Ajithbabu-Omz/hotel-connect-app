@@ -1,6 +1,6 @@
 const jwt = require('jsonwebtoken');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'community-app-secret-2024';
+const JWT_SECRET = process.env.JWT_SECRET || 'hotel-connect-secret-2024';
 
 function authenticate(req, res, next) {
   const authHeader = req.headers.authorization;
@@ -23,4 +23,11 @@ function requireAdmin(req, res, next) {
   next();
 }
 
-module.exports = { authenticate, requireAdmin, JWT_SECRET };
+function requireAdminOrStaff(req, res, next) {
+  if (req.user.role !== 'admin' && req.user.role !== 'staff') {
+    return res.status(403).json({ error: 'Staff access required' });
+  }
+  next();
+}
+
+module.exports = { authenticate, requireAdmin, requireAdminOrStaff, JWT_SECRET };

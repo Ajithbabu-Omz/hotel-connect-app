@@ -39,7 +39,7 @@ function LiveDot() {
 
 export default function WatchScreen({ navigation }) {
   const { user } = useAuth();
-  const isAdmin = user?.role === 'admin';
+  const isAdmin = user?.role === 'admin' || user?.role === 'staff';
   const [channels, setChannels] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -47,7 +47,7 @@ export default function WatchScreen({ navigation }) {
   async function fetchChannels() {
     try {
       const { data } = await api.get('/channels');
-      setChannels(data);
+      setChannels(data.channels || []);
     } catch (e) {
       console.error('Fetch channels error', e);
     } finally {

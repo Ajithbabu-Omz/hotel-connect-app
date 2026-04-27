@@ -9,8 +9,8 @@ export function NotificationProvider({ children }) {
 
   async function fetchUnread() {
     try {
-      const { data } = await api.get('/notifications');
-      setUnreadCount(data.filter(n => !n.read).length);
+      const { data } = await api.get('/notifications/unread-count');
+      setUnreadCount(data.count || 0);
     } catch {}
   }
 

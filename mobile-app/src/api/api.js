@@ -13,7 +13,7 @@ function getBaseURL() {
   return 'http://localhost:3000';
 }
 
-const BASE_URL = getBaseURL();
+export const BASE_URL = getBaseURL();
 
 const api = axios.create({
   baseURL: BASE_URL,

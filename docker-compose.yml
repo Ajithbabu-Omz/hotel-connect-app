@@ -1,0 +1,39 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: hotelapp
+      POSTGRES_PASSWORD: hotelpass
+      POSTGRES_DB: hotelconnect
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hotelapp -d hotelconnect"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # Must use "db" as hostname — this is the Docker service name, not localhost
+      DATABASE_URL: postgres://hotelapp:hotelpass@db:5432/hotelconnect
+      JWT_SECRET: hotel-connect-secret-change-me
+      PORT: 3000
+      # Set your EPG URL here or in backend/.env (env_file below overrides these if set)
+      EPG_URL: ""
+    env_file:
+      - path: backend/.env
+        required: false
+    ports:
+      - "3000:3000"
+
+volumes:
+  pgdata:

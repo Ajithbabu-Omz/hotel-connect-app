@@ -224,7 +224,7 @@ export default function CommunityScreen({ route, navigation }) {
 
   function renderPost({ item }) {
     const isOwner = item.userId === user?.id;
-    const canDelete = isOwner || user?.role === 'admin';
+    const canDelete = isOwner || user?.role === 'admin' || user?.role === 'staff';
     return (
       <View style={styles.postCard}>
         <View style={styles.postHeader}>
@@ -370,9 +370,6 @@ export default function CommunityScreen({ route, navigation }) {
     <SafeAreaView style={styles.safe}>
       <View style={styles.header}>
         <Text style={styles.title}>Community</Text>
-        <TouchableOpacity style={styles.newPostBtn} onPress={() => setPostModal(true)}>
-          <Text style={styles.newPostText}>+ Post</Text>
-        </TouchableOpacity>
       </View>
 
       <FlatList
@@ -395,9 +392,21 @@ export default function CommunityScreen({ route, navigation }) {
         }
       />
 
+      {/* Floating New Post Button */}
+      <TouchableOpacity style={styles.fab} onPress={() => setPostModal(true)}>
+        <Text style={styles.fabText}>+ New Post</Text>
+      </TouchableOpacity>
+
       {/* New Post Modal */}
       <Modal visible={postModal} animationType="slide" presentationStyle="pageSheet">
         <SafeAreaView style={styles.modalSafe}>
+          <View style={styles.modalHeader}>
+            <TouchableOpacity onPress={() => { setPostModal(false); setNewPostContent(''); }}>
+              <Text style={styles.modalCancel}>Cancel</Text>
+            </TouchableOpacity>
+            <Text style={styles.modalTitle}>New Post</Text>
+            <View style={{ width: 60 }} />
+          </View>
           <KeyboardAvoidingView
             style={{ flex: 1 }}
             behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -547,8 +556,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFF', borderBottomWidth: 1, borderBottomColor: '#E5E7EB',
   },
   title: { fontSize: 20, fontWeight: '700', color: '#1E3A8A' },
-  newPostBtn: { backgroundColor: '#1E3A8A', borderRadius: 20, paddingHorizontal: 14, paddingVertical: 6 },
-  newPostText: { color: '#FFF', fontSize: 13, fontWeight: '700' },
+  fab: { position: 'absolute', bottom: 20, alignSelf: 'center', backgroundColor: '#1E3A8A', borderRadius: 28, paddingHorizontal: 24, paddingVertical: 13, shadowColor: '#1E3A8A', shadowOpacity: 0.35, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 8 },
+  fabText: { color: '#FFF', fontSize: 15, fontWeight: '700' },
   list: { padding: 12, gap: 12 },
   postCard: {
     backgroundColor: '#FFF', borderRadius: 14, padding: 14,
