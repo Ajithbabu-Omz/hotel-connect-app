@@ -1,4 +1,4 @@
-import { Text } from 'react-native';
+import { Text, View } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import HomeScreen from '../screens/HomeScreen';
@@ -12,7 +12,7 @@ import { useNotifications } from '../context/NotificationContext';
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
 
-const ICONS = { Home: '🏠', Community: '👥', Watch: '📺', Updates: '🔔', Profile: '👤' };
+const ICONS = { Home: '🏠', Community: '👥', Watch: '📺', Notifications: '🔔', Profile: '👤' };
 
 function TabIcon({ name, focused }) {
   return <Text style={{ fontSize: 22, opacity: focused ? 1 : 0.45 }}>{ICONS[name]}</Text>;
@@ -50,7 +50,7 @@ export default function MainNavigator() {
       <Tab.Screen name="Community" component={CommunityScreen} />
       <Tab.Screen name="Watch" component={WatchStack} />
       <Tab.Screen
-        name="Updates"
+        name="Notifications"
         component={UpdatesScreen}
         options={{ tabBarBadge: unreadCount > 0 ? unreadCount : undefined }}
       />

@@ -129,8 +129,8 @@ export default function WatchSessionScreen({ route, navigation }) {
 
       <KeyboardAvoidingView
         style={styles.chatContainer}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={90}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
       >
         {joining ? (
           <View style={styles.centered}><ActivityIndicator color="#1E3A8A" /></View>
@@ -160,6 +160,7 @@ export default function WatchSessionScreen({ route, navigation }) {
               placeholderTextColor="#9CA3AF"
               onSubmitEditing={sendMessage}
               returnKeyType="send"
+              blurOnSubmit={false}
             />
             <TouchableOpacity
               style={[styles.sendBtn, (!message.trim() || sending) && styles.sendBtnDisabled]}
@@ -178,15 +179,24 @@ export default function WatchSessionScreen({ route, navigation }) {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#F8FAFC' },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  header: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#1E3A8A', paddingHorizontal: 12, paddingVertical: 10 },
+  header: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: '#1E3A8A', paddingHorizontal: 12, paddingVertical: 10,
+  },
   backBtn: { paddingRight: 10 },
   backText: { color: '#FFF', fontSize: 14, fontWeight: '600' },
   headerInfo: { flex: 1 },
   channelName: { color: '#FFF', fontSize: 16, fontWeight: '700' },
   program: { color: '#93C5FD', fontSize: 12, marginTop: 1 },
-  viewerBadge: { backgroundColor: 'rgba(255,255,255,0.15)', borderRadius: 10, paddingHorizontal: 8, paddingVertical: 3 },
+  viewerBadge: {
+    backgroundColor: 'rgba(255,255,255,0.15)', borderRadius: 10,
+    paddingHorizontal: 8, paddingVertical: 3,
+  },
   viewerCount: { color: '#FFF', fontSize: 12, fontWeight: '600' },
-  nowPlaying: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#0F172A', paddingHorizontal: 14, paddingVertical: 8 },
+  nowPlaying: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: '#0F172A', paddingHorizontal: 14, paddingVertical: 8,
+  },
   liveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#EF4444', marginRight: 8 },
   nowText: { color: '#E2E8F0', fontSize: 12, fontWeight: '600' },
   nextText: { color: '#94A3B8', fontSize: 12 },
@@ -197,14 +207,25 @@ const styles = StyleSheet.create({
   msgRow: { alignItems: 'flex-start', maxWidth: '80%' },
   msgRowMe: { alignSelf: 'flex-end', alignItems: 'flex-end' },
   msgUser: { fontSize: 11, color: '#6B7280', marginBottom: 2, marginLeft: 4 },
-  msgBubble: { backgroundColor: '#FFF', borderRadius: 14, borderBottomLeftRadius: 4, paddingHorizontal: 12, paddingVertical: 8, shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 4, elevation: 1 },
+  msgBubble: {
+    backgroundColor: '#FFF', borderRadius: 14, borderBottomLeftRadius: 4,
+    paddingHorizontal: 12, paddingVertical: 8,
+    shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 4, elevation: 1,
+  },
   msgBubbleMe: { backgroundColor: '#1E3A8A', borderBottomLeftRadius: 14, borderBottomRightRadius: 4 },
   msgText: { fontSize: 14, color: '#1F2937', lineHeight: 19 },
   msgTextMe: { color: '#FFF' },
   chatEmpty: { flex: 1, alignItems: 'center', paddingTop: 40 },
   chatEmptyText: { color: '#9CA3AF', fontSize: 14 },
-  inputRow: { flexDirection: 'row', padding: 10, backgroundColor: '#FFF', borderTopWidth: 1, borderTopColor: '#E5E7EB', gap: 8 },
-  chatInput: { flex: 1, borderWidth: 1, borderColor: '#E5E7EB', borderRadius: 22, paddingHorizontal: 14, paddingVertical: 9, fontSize: 14, color: '#1F2937', backgroundColor: '#F9FAFB' },
+  inputRow: {
+    flexDirection: 'row', padding: 10,
+    backgroundColor: '#FFF', borderTopWidth: 1, borderTopColor: '#E5E7EB', gap: 8,
+  },
+  chatInput: {
+    flex: 1, borderWidth: 1, borderColor: '#E5E7EB', borderRadius: 22,
+    paddingHorizontal: 14, paddingVertical: 9, fontSize: 14,
+    color: '#1F2937', backgroundColor: '#F9FAFB',
+  },
   sendBtn: { backgroundColor: '#1E3A8A', borderRadius: 22, paddingHorizontal: 16, justifyContent: 'center' },
   sendBtnDisabled: { opacity: 0.45 },
   sendText: { color: '#FFF', fontSize: 14, fontWeight: '700' },

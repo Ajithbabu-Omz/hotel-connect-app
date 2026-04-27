@@ -23,7 +23,7 @@ function SectionTitle({ children }) {
 
 // ─── GUEST HOME ───────────────────────────────────────────────────────────────
 
-function GuestHome({ user }) {
+function GuestHome({ user, route, navigation }) {
   const [menu, setMenu] = useState(null);
   const [events, setEvents] = useState([]);
   const [myRequests, setMyRequests] = useState([]);
@@ -49,6 +49,16 @@ function GuestHome({ user }) {
 
   useFocusEffect(useCallback(() => { fetchData(); }, []));
 
+  React.useEffect(() => {
+    if (route?.params?.openRequestId && myRequests.length > 0) {
+      // Clear the param after 3 seconds so the highlight fades
+      const timer = setTimeout(() => {
+        navigation.setParams({ openRequestId: null });
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [route?.params?.openRequestId, myRequests]);
+
   function openRequest(type) {
     setRequestType(type);
     setRequestDesc('');
@@ -70,8 +80,27 @@ function GuestHome({ user }) {
     }
   }
 
-  const STATUS_COLORS = { pending: '#FEF3C7', done: '#D1FAE5', rejected: '#FEE2E2' };
-  const STATUS_TEXT = { pending: '#92400E', done: '#065F46', rejected: '#991B1B' };
+  const STATUS_COLORS = {
+    pending: '#FEF3C7',
+    in_progress: '#DBEAFE',
+    completed: '#D1FAE5',
+    done: '#D1FAE5',
+    rejected: '#FEE2E2',
+  };
+  const STATUS_TEXT = {
+    pending: '#92400E',
+    in_progress: '#1D4ED8',
+    completed: '#065F46',
+    done: '#065F46',
+    rejected: '#991B1B',
+  };
+  const STATUS_LABELS = {
+    pending: '⏳ Pending',
+    in_progress: '🔄 In Progress',
+    completed: '✅ Completed',
+    done: '✅ Done',
+    rejected: '❌ Rejected',
+  };
 
   const AMENITIES = ['🏊 Pool', '💪 Gym', '🧺 Laundry', '☕ Café', '📚 Library', '🅿️ Parking'];
 
@@ -113,20 +142,30 @@ function GuestHome({ user }) {
         {myRequests.length > 0 && (
           <View style={styles.section}>
             <SectionTitle>My Requests</SectionTitle>
-            {myRequests.slice(0, 5).map(req => (
-              <View key={req.id} style={styles.myReqCard}>
+            {myRequests.slice(0, 5).map(req => {
+              const isTarget = route?.params?.openRequestId === req.id;
+              return (
+              <View key={req.id} style={[styles.myReqCard, isTarget && styles.myReqCardHighlight]}>
                 <View style={styles.myReqLeft}>
-                  <Text style={styles.myReqType}>{req.type.charAt(0).toUpperCase() + req.type.slice(1)}</Text>
+                  <View style={styles.myReqTopRow}>
+                    <Text style={styles.myReqType}>{req.type.charAt(0).toUpperCase() + req.type.slice(1)}</Text>
+                    <View style={[styles.myReqBadge, { backgroundColor: STATUS_COLORS[req.status] || '#F3F4F6' }]}>
+                      <Text style={[styles.myReqBadgeText, { color: STATUS_TEXT[req.status] || '#374151' }]}>
+                        {STATUS_LABELS[req.status] || req.status}
+                      </Text>
+                    </View>
+                  </View>
                   {req.description ? <Text style={styles.myReqDesc} numberOfLines={1}>{req.description}</Text> : null}
                   <Text style={styles.myReqTime}>{formatDate(req.createdAt)}</Text>
-                </View>
-                <View style={[styles.myReqBadge, { backgroundColor: STATUS_COLORS[req.status] || '#F3F4F6' }]}>
-                  <Text style={[styles.myReqBadgeText, { color: STATUS_TEXT[req.status] || '#374151' }]}>
-                    {req.status}
-                  </Text>
+                  {req.adminReply ? (
+                    <View style={styles.adminReplyBox}>
+                      <Text style={styles.adminReplyLabel}>🛎️ Staff reply:</Text>
+                      <Text style={styles.adminReplyText}>{req.adminReply}</Text>
+                    </View>
+                  ) : null}
                 </View>
               </View>
-            ))}
+            )})}
           </View>
         )}
 
@@ -217,7 +256,7 @@ function GuestHome({ user }) {
             <Text style={styles.modalTitle}>Request {requestType.charAt(0).toUpperCase() + requestType.slice(1)}</Text>
             <View style={{ width: 60 }} />
           </View>
-          <KeyboardAvoidingView style={{ flex: 1, padding: 16 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+          <KeyboardAvoidingView style={{ flex: 1, padding: 16 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
             <Text style={styles.inputLabel}>Description (optional)</Text>
             <TextInput
               style={[styles.textArea]}
@@ -244,8 +283,13 @@ function GuestHome({ user }) {
 
 // ─── ADMIN HOME ───────────────────────────────────────────────────────────────
 
+// Admin request action panel state (per-request expand)
 function AdminHome() {
   const [view, setView] = useState('dashboard');
+  const [expandedReqId, setExpandedReqId] = useState(null);
+  const [reqActionStatus, setReqActionStatus] = useState({});
+  const [reqActionReply, setReqActionReply] = useState({});
+  const [reqUpdating, setReqUpdating] = useState({});
   const [users, setUsers] = useState([]);
   const [requests, setRequests] = useState([]);
   const [menu, setMenu] = useState({ breakfast: '', lunch: '', dinner: '' });
@@ -405,11 +449,21 @@ function AdminHome() {
     ]);
   }
 
-  async function handleUpdateRequestStatus(id, status) {
+  async function handleUpdateRequest(id) {
+    const status = reqActionStatus[id];
+    const adminReply = reqActionReply[id] || '';
+    if (!status) { Alert.alert('Error', 'Please select a status'); return; }
+    setReqUpdating(prev => ({ ...prev, [id]: true }));
     try {
-      await api.put(`/admin/service-requests/${id}`, { status });
-      setRequests(prev => prev.map(r => r.id === id ? { ...r, status } : r));
-    } catch {}
+      const { data } = await api.put(`/admin/service-requests/${id}`, { status, adminReply });
+      setRequests(prev => prev.map(r => r.id === id ? { ...r, ...data.request } : r));
+      setExpandedReqId(null);
+      Alert.alert('Updated', 'Request has been updated');
+    } catch {
+      Alert.alert('Error', 'Failed to update request');
+    } finally {
+      setReqUpdating(prev => ({ ...prev, [id]: false }));
+    }
   }
 
   const DASH_ITEMS = [
@@ -476,23 +530,89 @@ function AdminHome() {
             data={requests}
             keyExtractor={item => item.id}
             contentContainerStyle={{ padding: 12, gap: 10 }}
-            renderItem={({ item }) => (
-              <View style={styles.requestCard}>
-                <View style={styles.requestInfo}>
-                  <Text style={styles.requestType}>{item.type.toUpperCase()}</Text>
-                  <Text style={styles.requestUser}>{item.username} · Room {item.room}</Text>
-                  {item.description ? <Text style={styles.requestDesc}>{item.description}</Text> : null}
-                  <View style={[styles.statusBadgeSmall, item.status === 'pending' && styles.statusPending, item.status === 'done' && styles.statusDone]}>
-                    <Text style={styles.statusSmallText}>{item.status}</Text>
+            renderItem={({ item }) => {
+              const isExpanded = expandedReqId === item.id;
+              const STATUS_BADGE_COLORS = {
+                pending: { bg: '#FEF3C7', text: '#92400E' },
+                in_progress: { bg: '#DBEAFE', text: '#1D4ED8' },
+                completed: { bg: '#D1FAE5', text: '#065F46' },
+                done: { bg: '#D1FAE5', text: '#065F46' },
+              };
+              const badge = STATUS_BADGE_COLORS[item.status] || { bg: '#F3F4F6', text: '#374151' };
+              return (
+                <View style={styles.requestCard}>
+                  <View style={styles.requestInfo}>
+                    <View style={styles.reqTopRow}>
+                      <Text style={styles.requestType}>{item.type.toUpperCase()}</Text>
+                      <View style={[styles.statusBadgeSmall, { backgroundColor: badge.bg }]}>
+                        <Text style={[styles.statusSmallText, { color: badge.text }]}>{item.status.replace('_', ' ')}</Text>
+                      </View>
+                    </View>
+                    <Text style={styles.requestUser}>{item.username} · Room {item.room}</Text>
+                    {item.description ? <Text style={styles.requestDesc}>{item.description}</Text> : null}
+                    {item.adminReply ? (
+                      <Text style={styles.adminReplyBadge}>💬 {item.adminReply}</Text>
+                    ) : null}
                   </View>
-                </View>
-                {item.status === 'pending' && (
-                  <TouchableOpacity onPress={() => handleUpdateRequestStatus(item.id, 'done')} style={styles.markDoneBtn}>
-                    <Text style={styles.markDoneText}>✓ Done</Text>
+                  <TouchableOpacity
+                    style={styles.expandActionBtn}
+                    onPress={() => {
+                      setExpandedReqId(isExpanded ? null : item.id);
+                      if (!isExpanded) {
+                        setReqActionStatus(prev => ({ ...prev, [item.id]: item.status }));
+                        setReqActionReply(prev => ({ ...prev, [item.id]: item.adminReply || '' }));
+                      }
+                    }}
+                  >
+                    <Text style={styles.expandActionText}>{isExpanded ? '▲ Close' : '✏️ Update'}</Text>
                   </TouchableOpacity>
-                )}
-              </View>
-            )}
+
+                  {isExpanded && (
+                    <View style={styles.actionPanel}>
+                      <Text style={styles.actionPanelLabel}>Status</Text>
+                      <View style={styles.statusPickerRow}>
+                        {['pending', 'in_progress', 'completed'].map(s => (
+                          <TouchableOpacity
+                            key={s}
+                            style={[
+                              styles.statusPickerChip,
+                              reqActionStatus[item.id] === s && styles.statusPickerChipActive,
+                            ]}
+                            onPress={() => setReqActionStatus(prev => ({ ...prev, [item.id]: s }))}
+                          >
+                            <Text style={[
+                              styles.statusPickerText,
+                              reqActionStatus[item.id] === s && styles.statusPickerTextActive,
+                            ]}>
+                              {s.replace('_', ' ')}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                      <Text style={[styles.actionPanelLabel, { marginTop: 10 }]}>Reply to Guest</Text>
+                      <TextInput
+                        style={styles.replyInput}
+                        value={reqActionReply[item.id] || ''}
+                        onChangeText={v => setReqActionReply(prev => ({ ...prev, [item.id]: v }))}
+                        placeholder='e.g. "Will be done in 30 mins"'
+                        placeholderTextColor="#9CA3AF"
+                        multiline
+                      />
+                      <TouchableOpacity
+                        style={[styles.updateReqBtn, reqUpdating[item.id] && { opacity: 0.6 }]}
+                        onPress={() => handleUpdateRequest(item.id)}
+                        disabled={reqUpdating[item.id]}
+                      >
+                        {reqUpdating[item.id]
+                          ? <ActivityIndicator color="#FFF" />
+                          : <Text style={styles.updateReqText}>✓ Save Update</Text>
+                        }
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                </View>
+              );
+            }}
             ListEmptyComponent={<Text style={styles.emptyText}>No service requests</Text>}
           />
         )}
@@ -810,10 +930,10 @@ function AdminHome() {
 
 // ─── MAIN EXPORT ─────────────────────────────────────────────────────────────
 
-export default function HomeScreen() {
+export default function HomeScreen({ route, navigation }) {
   const { user } = useAuth();
-  if (user?.role === 'admin') return <AdminHome />;
-  return <GuestHome user={user} />;
+  if (user?.role === 'admin') return <AdminHome route={route} navigation={navigation} />;
+  return <GuestHome user={user} route={route} navigation={navigation} />;
 }
 
 // ─── STYLES ──────────────────────────────────────────────────────────────────
@@ -910,26 +1030,43 @@ const styles = StyleSheet.create({
   datePickerIcon: { fontSize: 16 },
 
   // My Requests (guest)
-  myReqCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFF', borderRadius: 10, padding: 12, marginBottom: 8, shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 4, elevation: 1 },
+  myReqCard: { backgroundColor: '#FFF', borderRadius: 10, padding: 12, marginBottom: 8, shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 4, elevation: 1 },
+  myReqCardHighlight: { borderWidth: 2, borderColor: '#1E3A8A', backgroundColor: '#F0F9FF' },
   myReqLeft: { flex: 1 },
+  myReqTopRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 },
   myReqType: { fontSize: 14, fontWeight: '700', color: '#1F2937' },
   myReqDesc: { fontSize: 12, color: '#6B7280', marginTop: 2 },
   myReqTime: { fontSize: 11, color: '#9CA3AF', marginTop: 2 },
-  myReqBadge: { borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4 },
-  myReqBadgeText: { fontSize: 12, fontWeight: '700' },
+  myReqBadge: { borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 },
+  myReqBadgeText: { fontSize: 11, fontWeight: '700' },
+  adminReplyBox: { backgroundColor: '#EFF6FF', borderRadius: 8, padding: 8, marginTop: 8, borderLeftWidth: 3, borderLeftColor: '#1E3A8A' },
+  adminReplyLabel: { fontSize: 11, color: '#1E3A8A', fontWeight: '700', marginBottom: 2 },
+  adminReplyText: { fontSize: 13, color: '#1F2937' },
 
   // Request cards
-  requestCard: { flexDirection: 'row', alignItems: 'flex-start', backgroundColor: '#FFF', borderRadius: 12, padding: 14, shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 5, elevation: 2 },
-  requestInfo: { flex: 1 },
-  requestType: { fontSize: 13, fontWeight: '700', color: '#1E3A8A', marginBottom: 2 },
+  requestCard: { backgroundColor: '#FFF', borderRadius: 12, padding: 14, shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 5, elevation: 2 },
+  requestInfo: { marginBottom: 10 },
+  reqTopRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 },
+  requestType: { fontSize: 13, fontWeight: '700', color: '#1E3A8A' },
   requestUser: { fontSize: 13, color: '#6B7280', marginBottom: 4 },
-  requestDesc: { fontSize: 12, color: '#9CA3AF', marginBottom: 6 },
+  requestDesc: { fontSize: 12, color: '#9CA3AF', marginBottom: 4 },
+  adminReplyBadge: { fontSize: 12, color: '#1D4ED8', fontStyle: 'italic', marginTop: 2 },
   statusBadgeSmall: { alignSelf: 'flex-start', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 2 },
   statusPending: { backgroundColor: '#FEF3C7' },
   statusDone: { backgroundColor: '#D1FAE5' },
-  statusSmallText: { fontSize: 11, fontWeight: '700', color: '#374151' },
-  markDoneBtn: { backgroundColor: '#D1FAE5', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6, marginLeft: 8 },
-  markDoneText: { color: '#059669', fontSize: 12, fontWeight: '700' },
+  statusSmallText: { fontSize: 11, fontWeight: '700' },
+  expandActionBtn: { backgroundColor: '#EFF6FF', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 7, alignSelf: 'flex-start' },
+  expandActionText: { color: '#1E3A8A', fontSize: 12, fontWeight: '700' },
+  actionPanel: { marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#E5E7EB' },
+  actionPanelLabel: { fontSize: 12, fontWeight: '600', color: '#374151', marginBottom: 6 },
+  statusPickerRow: { flexDirection: 'row', gap: 8 },
+  statusPickerChip: { borderWidth: 1, borderColor: '#D1D5DB', borderRadius: 20, paddingHorizontal: 12, paddingVertical: 6 },
+  statusPickerChipActive: { backgroundColor: '#1E3A8A', borderColor: '#1E3A8A' },
+  statusPickerText: { fontSize: 12, color: '#6B7280', fontWeight: '500', textTransform: 'capitalize' },
+  statusPickerTextActive: { color: '#FFF', fontWeight: '700' },
+  replyInput: { borderWidth: 1, borderColor: '#E5E7EB', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, fontSize: 13, color: '#1F2937', backgroundColor: '#F9FAFB', minHeight: 70, textAlignVertical: 'top', marginBottom: 10 },
+  updateReqBtn: { backgroundColor: '#059669', borderRadius: 10, paddingVertical: 10, alignItems: 'center' },
+  updateReqText: { color: '#FFF', fontSize: 14, fontWeight: '700' },
 
   // Recent request card (dashboard)
   recentReqCard: { backgroundColor: '#FFF', borderRadius: 10, padding: 12, marginBottom: 8, shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 4, elevation: 1 },

@@ -10,24 +10,39 @@ const EPG_CACHE_TTL = 5 * 60 * 1000;
 let epgCache = null;
 let epgCacheTime = 0;
 
+// Builds mock channels with realistic timestamps so the progress bar renders
 function getMockChannels() {
-  return [
-    { channelId: 'ch-1', name: 'CNN International', currentProgram: 'World News Now', nextProgram: 'Breaking News Special' },
-    { channelId: 'ch-2', name: 'BBC World News', currentProgram: 'Global Update', nextProgram: 'The Travel Show' },
-    { channelId: 'ch-3', name: 'Discovery Channel', currentProgram: 'Shark Week', nextProgram: 'Planet Earth III' },
-    { channelId: 'ch-4', name: 'ESPN', currentProgram: 'SportsCenter', nextProgram: 'NFL Live' },
-    { channelId: 'ch-5', name: 'National Geographic', currentProgram: 'Wild Kingdom', nextProgram: 'Air Crash Investigation' },
-    { channelId: 'ch-6', name: 'HBO', currentProgram: 'The Last of Us', nextProgram: 'House of the Dragon' },
-    { channelId: 'ch-7', name: 'Fox Sports', currentProgram: 'Match of the Day', nextProgram: 'Formula 1' },
-    { channelId: 'ch-8', name: 'MTV', currentProgram: 'Video Hits', nextProgram: 'Reality Check' },
-    { channelId: 'ch-9', name: 'Animal Planet', currentProgram: 'Crocodile Hunter', nextProgram: 'Meerkat Manor' },
-    { channelId: 'ch-10', name: 'History Channel', currentProgram: 'Ancient Aliens', nextProgram: 'Pawn Stars' },
-  ].map(ch => ({
-    ...ch,
-    currentProgramStart: null,
-    currentProgramDuration: null,
-    viewers: store.watchSessions[ch.channelId] ? store.watchSessions[ch.channelId].viewers.size : 0,
-  }));
+  const now = Date.now();
+  const HOUR = 3600000;
+
+  const mockData = [
+    { channelId: 'ch-1', name: 'CNN International', currentProgram: 'World News Now', nextProgram: 'Breaking News Special', offset: 0.2, duration: HOUR },
+    { channelId: 'ch-2', name: 'BBC World News', currentProgram: 'Global Update', nextProgram: 'The Travel Show', offset: 0.45, duration: HOUR * 1.5 },
+    { channelId: 'ch-3', name: 'Discovery Channel', currentProgram: 'Shark Week', nextProgram: 'Planet Earth III', offset: 0.6, duration: HOUR * 2 },
+    { channelId: 'ch-4', name: 'ESPN', currentProgram: 'SportsCenter', nextProgram: 'NFL Live', offset: 0.1, duration: HOUR * 0.5 },
+    { channelId: 'ch-5', name: 'National Geographic', currentProgram: 'Wild Kingdom', nextProgram: 'Air Crash Investigation', offset: 0.75, duration: HOUR },
+    { channelId: 'ch-6', name: 'HBO', currentProgram: 'The Last of Us', nextProgram: 'House of the Dragon', offset: 0.3, duration: HOUR * 1.5 },
+    { channelId: 'ch-7', name: 'Fox Sports', currentProgram: 'Match of the Day', nextProgram: 'Formula 1', offset: 0.5, duration: HOUR },
+    { channelId: 'ch-8', name: 'MTV', currentProgram: 'Video Hits', nextProgram: 'Reality Check', offset: 0.85, duration: HOUR * 0.75 },
+    { channelId: 'ch-9', name: 'Animal Planet', currentProgram: 'Crocodile Hunter', nextProgram: 'Meerkat Manor', offset: 0.15, duration: HOUR * 2 },
+    { channelId: 'ch-10', name: 'History Channel', currentProgram: 'Ancient Aliens', nextProgram: 'Pawn Stars', offset: 0.4, duration: HOUR },
+  ];
+
+  return mockData.map(ch => {
+    const duration = ch.duration;
+    // currentProgramStart is calculated so 'offset' fraction of the show has already aired
+    const currentProgramStart = now - Math.round(ch.offset * duration);
+    return {
+      channelId: ch.channelId,
+      name: ch.name,
+      currentProgram: ch.currentProgram,
+      nextProgram: ch.nextProgram,
+      currentProgramStart,
+      currentProgramDuration: duration,
+      streamUrl: null,
+      viewers: store.watchSessions[ch.channelId] ? store.watchSessions[ch.channelId].viewers.size : 0,
+    };
+  });
 }
 
 async function fetchEPGData() {

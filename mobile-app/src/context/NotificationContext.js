@@ -16,7 +16,7 @@ export function NotificationProvider({ children }) {
 
   useEffect(() => {
     fetchUnread();
-    intervalRef.current = setInterval(fetchUnread, 30000);
+    intervalRef.current = setInterval(fetchUnread, 15000);
     return () => clearInterval(intervalRef.current);
   }, []);
 

@@ -35,8 +35,23 @@ router.post('/posts/:id/like', authenticate, (req, res) => {
   const post = store.posts.find(p => p.id === req.params.id);
   if (!post) return res.status(404).json({ error: 'Post not found' });
   const idx = post.likes.indexOf(req.user.id);
-  if (idx === -1) post.likes.push(req.user.id);
-  else post.likes.splice(idx, 1);
+  if (idx === -1) {
+    post.likes.push(req.user.id);
+    // Push like notification to post owner (not self-likes)
+    if (post.userId !== req.user.id) {
+      store.notifications.push({
+        id: uuidv4(),
+        type: 'post_like',
+        message: `${req.user.name} liked your post`,
+        targetUserId: post.userId,
+        referenceId: post.id,
+        createdAt: new Date().toISOString(),
+        readBy: [],
+      });
+    }
+  } else {
+    post.likes.splice(idx, 1);
+  }
   res.json({ success: true, likeCount: post.likes.length, liked: idx === -1 });
 });
 
@@ -74,7 +89,8 @@ router.get('/comments/:postId', authenticate, (req, res) => {
 router.post('/comments', authenticate, (req, res) => {
   const { postId, content, parentId } = req.body;
   if (!postId || !content || !content.trim()) return res.status(400).json({ error: 'postId and content required' });
-  if (!store.posts.find(p => p.id === postId)) return res.status(404).json({ error: 'Post not found' });
+  const post = store.posts.find(p => p.id === postId);
+  if (!post) return res.status(404).json({ error: 'Post not found' });
   const comment = {
     id: uuidv4(),
     postId,
@@ -86,6 +102,20 @@ router.post('/comments', authenticate, (req, res) => {
     createdAt: new Date().toISOString(),
   };
   store.comments.push(comment);
+
+  // Push comment notification to post owner (not self-comments)
+  if (post.userId !== req.user.id) {
+    store.notifications.push({
+      id: uuidv4(),
+      type: 'post_comment',
+      message: `${req.user.name} commented on your post`,
+      targetUserId: post.userId,
+      referenceId: post.id,
+      createdAt: new Date().toISOString(),
+      readBy: [],
+    });
+  }
+
   res.json({ success: true, comment: { ...comment, likeCount: 0, liked: false } });
 });
 
@@ -96,6 +126,32 @@ router.post('/comments/:id/like', authenticate, (req, res) => {
   if (idx === -1) comment.likes.push(req.user.id);
   else comment.likes.splice(idx, 1);
   res.json({ success: true, likeCount: comment.likes.length, liked: idx === -1 });
+});
+
+// Edit comment — owner only
+router.put('/comments/:id', authenticate, (req, res) => {
+  const comment = store.comments.find(c => c.id === req.params.id);
+  if (!comment) return res.status(404).json({ error: 'Comment not found' });
+  if (comment.userId !== req.user.id) return res.status(403).json({ error: 'Not authorized' });
+  const { content } = req.body;
+  if (!content || !content.trim()) return res.status(400).json({ error: 'Content required' });
+  comment.content = content.trim();
+  comment.editedAt = new Date().toISOString();
+  res.json({ success: true, comment: { ...comment, likeCount: comment.likes.length, liked: comment.likes.includes(req.user.id) } });
+});
+
+// Delete comment — owner or admin
+router.delete('/comments/:id', authenticate, (req, res) => {
+  const comment = store.comments.find(c => c.id === req.params.id);
+  if (!comment) return res.status(404).json({ error: 'Comment not found' });
+  if (comment.userId !== req.user.id && req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Not authorized' });
+  }
+  // Also remove any replies to this comment
+  const idx = store.comments.findIndex(c => c.id === req.params.id);
+  store.comments.splice(idx, 1);
+  store.comments = store.comments.filter(c => c.parentId !== req.params.id);
+  res.json({ success: true });
 });
 
 module.exports = router;

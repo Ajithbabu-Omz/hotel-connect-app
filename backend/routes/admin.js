@@ -56,9 +56,9 @@ router.delete('/users/:id', (req, res) => {
 
 router.post('/menu', (req, res) => {
   const { breakfast, lunch, dinner } = req.body;
-  if (breakfast) store.menu.breakfast = breakfast;
-  if (lunch) store.menu.lunch = lunch;
-  if (dinner) store.menu.dinner = dinner;
+  if (breakfast !== undefined) store.menu.breakfast = breakfast;
+  if (lunch !== undefined) store.menu.lunch = lunch;
+  if (dinner !== undefined) store.menu.dinner = dinner;
   res.json({ success: true, menu: store.menu });
 });
 
@@ -71,6 +71,7 @@ router.post('/broadcast', (req, res) => {
     type: type || 'broadcast',
     createdAt: new Date().toISOString(),
     readBy: [],
+    // No targetUserId → visible to all users
   };
   store.notifications.push(notification);
   res.json({ success: true, notification });
@@ -113,10 +114,40 @@ router.get('/service-requests', (req, res) => {
   res.json(store.serviceRequests.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)));
 });
 
+// Update service request status + add admin reply; notify guest
 router.put('/service-requests/:id', (req, res) => {
   const request = store.serviceRequests.find(r => r.id === req.params.id);
   if (!request) return res.status(404).json({ error: 'Request not found' });
-  if (req.body.status) request.status = req.body.status;
+
+  const VALID_STATUSES = ['pending', 'in_progress', 'completed'];
+  const { status, adminReply } = req.body;
+
+  if (status !== undefined) {
+    if (!VALID_STATUSES.includes(status)) {
+      return res.status(400).json({ error: `status must be one of: ${VALID_STATUSES.join(', ')}` });
+    }
+    request.status = status;
+  }
+
+  if (adminReply !== undefined) {
+    request.adminReply = adminReply.trim();
+  }
+
+  request.updatedAt = new Date().toISOString();
+
+  // Notify the guest about the update
+  if (adminReply && adminReply.trim()) {
+    store.notifications.push({
+      id: uuidv4(),
+      type: 'service_reply',
+      message: `Your ${request.type} request: "${adminReply.trim()}"`,
+      targetUserId: request.userId,
+      referenceId: request.id,
+      createdAt: new Date().toISOString(),
+      readBy: [],
+    });
+  }
+
   res.json({ success: true, request });
 });
 
